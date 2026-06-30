@@ -33,6 +33,16 @@ def get_font(fontsize: int):
         return ImageFont.truetype(roboto_ttf_file, fontsize)
 
 
+def _multiline_text_width(drawing, text, font):
+    # Compatibility shim for ImageDraw.multiline_textsize(), removed in Pillow 10.
+    # multiline_textbbox() exists since Pillow 8.0, so this works on old and new Pillow alike.
+    # Behavior note: the old multiline_textsize()[0] returned the advance-based width measured
+    # from the origin; (right - left) of the bbox is the same value for left-anchored text
+    # (any difference is sub-pixel bearing), so the font-shrink-to-fit loop behaves identically.
+    left, _, right, _ = drawing.multiline_textbbox((0, 0), text, font=font)
+    return right - left
+
+
 def image_grid(imgs, batch_size=1, rows=None):
     if rows is None:
         if opts.n_rows > 0:
@@ -168,7 +178,8 @@ def draw_grid_annotations(im, width, height, hor_texts, ver_texts, margin=0):
         for line in lines:
             fnt = initial_fnt
             fontsize = initial_fontsize
-            while drawing.multiline_textsize(line.text, font=fnt)[0] > line.allowed_width and fontsize > 0:
+            # multiline_textsize was removed in Pillow 10; multiline_textbbox works on Pillow 8+ (old & new).
+            while _multiline_text_width(drawing, line.text, fnt) > line.allowed_width and fontsize > 0:
                 fontsize -= 1
                 fnt = get_font(fontsize)
             drawing.multiline_text((draw_x, draw_y + line.size[1] / 2), line.text, font=fnt, fill=color_active if line.is_active else color_inactive, anchor="mm", align="center")

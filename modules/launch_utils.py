@@ -42,10 +42,12 @@ def check_python_version():
     minor = sys.version_info.minor
     micro = sys.version_info.micro
 
+    # xwsdwebui: support newer Python while staying backward-compatible with 3.10.
+    # Old versions still work; newer ones (3.11/3.12/3.13) are now accepted too.
     if is_windows:
-        supported_minors = [10]
+        supported_minors = [10, 11, 12, 13]
     else:
-        supported_minors = [7, 8, 9, 10, 11]
+        supported_minors = [7, 8, 9, 10, 11, 12, 13]
 
     if not (major == 3 and minor in supported_minors):
         import modules.errors
@@ -327,42 +329,54 @@ re_requirement = re.compile(r"\s*([-_a-zA-Z0-9]+)\s*(?:==\s*([-+_.a-zA-Z0-9]+))?
 
 def requirements_met(requirements_file):
     """
-    Does a simple parse of a requirements.txt file to determine if all rerqirements in it
-    are already installed. Returns True if so, False if not installed or parsing fails.
+    Parses a requirements file to determine if all requirements in it are already installed.
+    Returns True if so, False if not installed or parsing fails.
+
+    xwsdwebui: uses packaging to understand full PEP 508 lines (>=, <, ranges, environment
+    markers, comments) so that range-based (non ==-pinned) requirements are correctly
+    recognised as satisfied instead of forcing a pip reinstall on every launch.
     """
 
     import importlib.metadata
-    import packaging.version
+    from packaging.requirements import Requirement
+    from packaging.version import parse as parse_version
 
     with open(requirements_file, "r", encoding="utf8") as file:
         for line in file:
-            if line.strip() == "":
+            line = line.strip()
+            # skip blanks, comments and pip flags (-r, --index-url, ...)
+            if line == "" or line.startswith("#") or line.startswith("-"):
                 continue
-
-            m = re.match(re_requirement, line)
-            if m is None:
-                return False
-
-            package = m.group(1).strip()
-            version_required = (m.group(2) or "").strip()
-
-            if version_required == "":
+            # drop inline comments ("pkg>=1  # note")
+            line = line.split(" #", 1)[0].strip()
+            if line == "":
                 continue
 
             try:
-                version_installed = importlib.metadata.version(package)
+                req = Requirement(line)
             except Exception:
                 return False
 
-            if packaging.version.parse(version_required) != packaging.version.parse(version_installed):
+            # ignore requirements that don't apply to this interpreter/OS
+            if req.marker is not None and not req.marker.evaluate():
+                continue
+
+            try:
+                version_installed = importlib.metadata.version(req.name)
+            except Exception:
+                return False
+
+            if req.specifier and not req.specifier.contains(parse_version(version_installed), prereleases=True):
                 return False
 
     return True
 
 
 def prepare_environment():
-    torch_index_url = os.environ.get('TORCH_INDEX_URL', "https://download.pytorch.org/whl/cu121")
-    torch_command = os.environ.get('TORCH_COMMAND', f"pip install torch==2.3.1 torchvision==0.18.1 --extra-index-url {torch_index_url}")
+    # xwsdwebui: default to a modern CUDA 12.8 / torch 2.7.1 stack (RTX 30/40/50xx friendly).
+    # Override TORCH_INDEX_URL / TORCH_COMMAND to pin an older stack (e.g. cu121 + torch 2.3.1) if needed.
+    torch_index_url = os.environ.get('TORCH_INDEX_URL', "https://download.pytorch.org/whl/cu128")
+    torch_command = os.environ.get('TORCH_COMMAND', f"pip install torch==2.7.1 torchvision==0.22.1 --extra-index-url {torch_index_url}")
     if args.use_ipex:
         if platform.system() == "Windows":
             # The "Nuullll/intel-extension-for-pytorch" wheels were built from IPEX source for Intel Arc GPU: https://github.com/intel/intel-extension-for-pytorch/tree/xpu-main
@@ -386,8 +400,12 @@ def prepare_environment():
     requirements_file = os.environ.get('REQS_FILE', "requirements_versions.txt")
     requirements_file_for_npu = os.environ.get('REQS_FILE_FOR_NPU', "requirements_npu.txt")
 
-    xformers_package = os.environ.get('XFORMERS_PACKAGE', 'xformers==0.0.27')
-    clip_package = os.environ.get('CLIP_PACKAGE', "https://github.com/openai/CLIP/archive/d50d76daa670286dd6cacf3bcd80b5e4823fc8e1.zip")
+    xformers_package = os.environ.get('XFORMERS_PACKAGE', 'xformers==0.0.31')
+    # xwsdwebui: clip-anytorch is a wheel-distributed drop-in for openai/CLIP (same `import clip`
+    # API) so there is no source build (the original git zip fails to build under build isolation).
+    # CLIP still does `from pkg_resources import packaging` at import time, which is why setuptools
+    # is held <70 in requirements_versions.txt (that symbol was removed in setuptools 70).
+    clip_package = os.environ.get('CLIP_PACKAGE', "clip-anytorch>=2.6.0")
     openclip_package = os.environ.get('OPENCLIP_PACKAGE', "https://github.com/mlfoundations/open_clip/archive/bb6e834e9c70d9c27d0dc3ecedeebeaeb1ffad6b.zip")
 
     assets_repo = os.environ.get('ASSETS_REPO', "https://github.com/AUTOMATIC1111/stable-diffusion-webui-assets.git")

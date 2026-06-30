@@ -1,43 +1,51 @@
-setuptools==69.5.1  # temp fix for compatibility with some old packages
-GitPython==3.1.32
-Pillow==9.5.0
-accelerate==0.31.0
-blendmodes==2022
-clean-fid==0.1.35
-diskcache==5.6.3
-einops==0.4.1
-facexlib==0.3.0
-fastapi==0.104.1
-gradio==4.40.0
-httpcore==0.15
-inflection==0.5.1
-jsonmerge==1.8.0
-kornia==0.6.7
-lark==1.1.2
-numpy==1.26.2
-omegaconf==2.2.3
-open-clip-torch==2.20.0
-piexif==1.1.3
-protobuf==3.20.0
-psutil==5.9.5
-pytorch_lightning==1.9.4
-resize-right==0.0.2
-safetensors==0.4.2
-scikit-image==0.21.0
-spandrel==0.3.4
-spandrel-extra-arches==0.1.1
-tomesd==0.1.3
+# xwsdwebui dependency policy:
+#   - Prefer lower bounds (>=) over exact locks (==) so the project tracks new
+#     Python / torch / CUDA without freezing.
+#   - When a newer release changes an API, adapt the code with a functionally
+#     equivalent call (a compat shim) instead of pinning to an old version.
+#   - Keep an UPPER bound only where a known major release is functionally
+#     incompatible with Forge (these are compatibility boundaries, not locks).
+setuptools>=69.5.1,<70       # provides the distutils shim for Py3.12+ AND keeps pkg_resources.packaging (CLIP imports it; removed in setuptools 70)
+GitPython>=3.1.32
+Pillow>=9.5.0                 # images.py uses multiline_textbbox (Pillow 8+) + LANCZOS Resampling shim
+accelerate>=0.31.0
+blendmodes>=2022
+clean-fid>=0.1.35
+diskcache>=5.6.3
+einops>=0.4.1
+facexlib>=0.3.0
+fastapi>=0.104.1,<0.105      # pins Starlette to 0.27.x; Gradio 4.4x calls the old TemplateResponse(name, ctx) API removed in newer Starlette
+gradio>=4.40.0,<4.41        # Forge's UI/canvas + custom components are validated against Gradio 4.40 (the one Forge ships); 4.4x changed Starlette TemplateResponse usage, 5.x is a full redesign
+httpcore>=0.15
+inflection>=0.5.1
+jsonmerge>=1.8.0
+kornia>=0.6.7
+lark>=1.1.2
+numpy>=1.26.2
+omegaconf>=2.2.3
+open-clip-torch>=2.20.0
+piexif>=1.1.3
+protobuf>=3.20.0
+psutil>=5.9.5
+pytorch_lightning>=1.9.4
+resize-right>=0.0.2
+safetensors>=0.4.2
+sentencepiece>=0.2.0          # required by bundled gguf vocab + T5/LLaMA tokenizers (was implicit before)
+scikit-image>=0.21.0         # match_histograms(channel_axis=) API is stable across 0.19+
+spandrel>=0.3.4
+spandrel-extra-arches>=0.1.1
+tomesd>=0.1.3
 torch
-torchdiffeq==0.2.3
-torchsde==0.2.6
-transformers==4.46.1
-httpx==0.24.1
-pillow-avif-plugin==1.4.3
-diffusers==0.31.0
-gradio_rangeslider==0.0.6
-gradio_imageslider==0.0.20
-loadimg==0.1.2
-tqdm==4.66.1
-peft==0.13.2
-pydantic==2.8.2
-huggingface-hub==0.26.2
+torchdiffeq>=0.2.3
+torchsde>=0.2.6
+transformers>=4.46.1,<5      # Forge text-encoder/backend code targets the Transformers 4.x API
+httpx>=0.24.1
+pillow-avif-plugin>=1.4.3
+diffusers>=0.31.0
+gradio_rangeslider>=0.0.6
+gradio_imageslider>=0.0.20
+loadimg>=0.1.2
+tqdm>=4.66.1
+peft>=0.13.2
+pydantic>=2.8.2,<2.10      # FastAPI 0.104.x reads FieldInfo.in_, refactored away in Pydantic 2.10+ (web-stack stays coherent with Gradio 4.40)
+huggingface-hub>=0.26.2,<1.0  # <1.0 keeps HfFolder/cached_download/file_download internals Gradio 4 + Forge use
