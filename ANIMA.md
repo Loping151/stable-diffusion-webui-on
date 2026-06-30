@@ -23,21 +23,21 @@ CUDA_VISIBLE_DEVICES=0 ./venv/bin/python anima_infer.py \
 #   --lora models/anima/loras/anima-turbo-lora-v0.2.safetensors --lora-scale 1.0
 ```
 
-## Status — VERIFIED vs OPEN
-**Verified correct** (the architecture port is faithful):
-- DiT loads with 0 missing / 0 unexpected tensors; every component (patchify, AdaLN-LoRA,
-  RoPE-3D split-half, attention QK-norm, GELU MLP, final layer, llm_adapter, timestep=sigma)
-  was checked line-by-line against ComfyUI master.
-- **img2img refinement is perfect**: encode a real image → normalise → denoise from low sigma
-  → reconstructs a sharp anime image. This proves the DiT forward, VAE, normalisation and text
-  encoding are all correct.
-- Text conditioning works (prompts steer colour/content; "fire"→red, "ice"→blue).
+## Status — WORKING
+Text-to-image produces clean, high-quality anime images on CUDA0, matching ComfyUI's output
+for the same prompt/seed/settings. Verified by diffing every stage against ComfyUI master:
+- DiT loads 0 missing / 0 unexpected; RoPE-3D and the full DiT forward are **bit-exact** vs
+  ComfyUI's compiled kernel (`apply_rope_split_half`) and `MiniTrainDIT`.
+- Tokenization (Qwen3 + T5) and Qwen3 hidden states are bit-exact vs ComfyUI.
+- LLM adapter is bit-exact vs ComfyUI.
 - Anima-format LoRA merging works (Turbo LoRA: 508/508 modules).
-- VAE round-trip is pixel-faithful (Wan2.1 latents_mean/std).
 
-**Open issue**: pure-noise **text-to-image** produces a faceted / painterly result (correct
-colours, no fine structure). The single-step velocity field matches the expected target
-(cos≈0.91 across all sigmas), and the failure persists across euler / heun / SDE samplers,
-cfg 1–6, fp32/bf16, 512–1024 px, 24–50 steps, and with/without the Turbo LoRA — so it is a
-subtle sampling/trajectory issue, not a component bug. Resolving it likely needs an
-intermediate-tensor diff against a real ComfyUI run. img2img (low-sigma) works today.
+The final bug fixed during bring-up: the LLM adapter applied `out_proj` and the final RMSNorm
+in the wrong order. ComfyUI does `norm(out_proj(x))`; an earlier draft did `out_proj(norm(x))`,
+which corrupted the cross-attention context and turned text-to-image into faceted mush while
+leaving img2img (which leans on existing structure) looking fine. Order matters because RMSNorm
+and a Linear don't commute.
+
+Recommended settings (per the model card): 30–50 steps, CFG 4–6, 512²–1536². Samplers euler /
+heun (`ANIMA_SAMPLER=heun`) work; the model card also likes er_sde. The Wan 3D VAE decode is
+memory-heavy, so the VAE runs on CPU by default (change in `load_vae`).

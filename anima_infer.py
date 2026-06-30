@@ -228,7 +228,7 @@ class LLMAdapter(nn.Module):
         rope_kv = make_llama_rope(qwen_hidden.shape[1], self.head_dim, x.device, x.dtype)
         for blk in self.blocks:
             x = blk(x, qwen_hidden, rope_q, rope_kv)
-        return self.out_proj(self.norm(x))
+        return self.norm(self.out_proj(x))
 
 
 class MiniTrainDIT(nn.Module):
@@ -372,10 +372,13 @@ def sample(dit, ctx_pos, ctx_neg, H, W, steps, cfg, seed, device, dtype, shift=3
     g = torch.Generator(device="cpu").manual_seed(seed)
     x = torch.randn(1, 16, 1, H, W, generator=g).to(device, dtype)
     rope = make_rope3d(H // 2, W // 2, device, dtype)
-    # rectified-flow sigmas with shift
-    t = torch.linspace(1, 0, steps + 1)
-    sig = (shift * t) / (1 + (shift - 1) * t)
-    sig = sig.to(device)
+    # rectified-flow sigma schedule
+    sched = os.environ.get("ANIMA_SCHED", "shift")
+    if sched == "linear":
+        sig = torch.linspace(1, 0, steps + 1).to(device)
+    else:
+        t = torch.linspace(1, 0, steps + 1)
+        sig = ((shift * t) / (1 + (shift - 1) * t)).to(device)
     def velocity(x, s):
         st = s.expand(1).to(dtype)
         vp = dit(x, st, ctx_pos, rope)
