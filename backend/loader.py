@@ -463,6 +463,18 @@ def preprocess_state_dict(sd):
     if not any(k.startswith("model.diffusion_model") for k in sd.keys()):
         sd = {f"model.diffusion_model.{k}": v for k, v in sd.items()}
 
+    # Anima DiT checkpoints ship in two key conventions. The raw layout keeps every DiT weight
+    # under a `net.` module wrapper (e.g. miaomiaoHarem: `net.blocks...`), which the block above
+    # turns into `model.diffusion_model.net.*`. Other packagings strip that wrapper and expose
+    # the weights directly (e.g. JANIMA: `model.diffusion_model.blocks...`). Detection, key
+    # filtering and IntegratedAnima all expect the `net.` wrapper, so re-insert it for the
+    # stripped layout, giving a single `model.diffusion_model.net.*` form downstream. Guarded by
+    # the llm_adapter signature so only Anima checkpoints are touched.
+    P = "model.diffusion_model."
+    if f"{P}llm_adapter.blocks.0.self_attn.q_proj.weight" in sd \
+            and f"{P}net.llm_adapter.blocks.0.self_attn.q_proj.weight" not in sd:
+        sd = {(f"{P}net.{k[len(P):]}" if k.startswith(P) else k): v for k, v in sd.items()}
+
     return sd
 
 
