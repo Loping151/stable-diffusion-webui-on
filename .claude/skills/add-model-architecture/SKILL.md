@@ -154,3 +154,21 @@ identities on the raw sigma — that makes the scheduler read indices as sigmas,
   from a tracked module instead (Step 7.1).
 - `fp16` on a DiT with a large residual stream (Cosmos-Predict2) overflows to NaN — declare
   `supported_inference_dtypes = [torch.bfloat16, torch.float32]` so Forge never picks fp16.
+- Velocity SIGN. When wrapping a diffusers transformer, read the pipeline's denoising loop, not
+  just the transformer: Z-Image's pipeline does `noise_pred = -noise_pred` right before
+  `scheduler.step`. Forge's CONST predictor uses the model output directly as the flow
+  derivative, so any such negation must be folded into the wrapper. Symptom: no NaN, but the
+  latent std *grows* every step (diverges) and decodes to pure colour noise; the fix flips it
+  so std tracks the diffusers per-step trajectory. Diagnose by printing per-step latent std for
+  both your engine and the reference pipeline (`callback_on_step_end`) — they must match.
+- Timestep convention can be inverted between arch families even at the same `shift`: Anima's
+  Cosmos DiT wants `t = sigma` (t=1 is noise); Z-Image's NextDiT wants `t = 1 - sigma` (t=0 is
+  noise, matching diffusers' `(1000 - sigma*1000)/1000`). Encode this in the predictor's
+  `timestep(sigma)`, and check it against the reference by printing the timestep the reference
+  feeds its transformer at the first and last step.
+- List/variable-length conditioning vs Forge's fixed-size cond tensor: models like Z-Image
+  (NextDiT) / Qwen-Image take a *list* of variable-length, masked text embeddings. Forge can
+  only carry a single padded tensor per cond, so zero-pad to a fixed length in
+  get_learned_conditioning and recover each item's true length in the DiT wrapper by trimming
+  trailing all-zero rows. Do NOT just pad and attend over the padding without a mask unless the
+  model was trained that way (Anima was; Z-Image was not — padding-without-mask diverges ~30%).
