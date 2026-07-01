@@ -43,7 +43,7 @@ mask-from-padding), `backend/diffusion_engine/qwenimage.py` (engine + the fp8/VA
 `backend/modules/k_prediction.py::PredictionFlux` (Qwen-Image's dynamic shift == Flux's),
 `backend/loader.py` + `backend/huggingface/QwenImage/model_index.json`.
 
-### Bring-up notes (see `.claude/skills/add-model-architecture`)
+### Bring-up notes (see `skills/add-model-architecture`)
 - **Quantization is Forge's job, not the model's.** Forge's loader detects the checkpoint dtype
   (fp8/nf4/gguf) and builds the model inside `using_forge_operations(...)`, which monkeypatches
   `torch.nn.Linear`/`Conv` to quantization-aware ops. Because `IntegratedQwenImage` subclasses

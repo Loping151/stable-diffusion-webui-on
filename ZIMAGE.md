@@ -51,7 +51,7 @@ Pieces (all version-controlled):
 - `backend/modules/k_prediction.py::PredictionZImage` — rectified-flow predictor, `timestep=1-sigma`.
 - `backend/loader.py` + `backend/huggingface/ZImage/model_index.json` — routing + engine registration.
 
-### Bring-up notes (see `.claude/skills/add-model-architecture`)
+### Bring-up notes (see `skills/add-model-architecture`)
 - The diffusers pipeline negates the DiT output (`noise_pred = -noise_pred`) before the scheduler
   step; folded into the wrapper. Without it the sampler diverges (latent std grows) -> pure noise.
 - Timestep is `1 - sigma` (t=0 is noise), the opposite of Anima's Cosmos DiT (`t = sigma`).

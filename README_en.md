@@ -2,59 +2,51 @@
 
 # Stable Diffusion WebUI On
 
-**Keep supporting as many new AIGC model architectures as possible — and carry the LoRA / extension ecosystem along.**
-
-`more architectures · fresh deps · LoRA/extensions kept working · personally maintained`
+A fork of Stable Diffusion WebUI Forge: adapting newer AIGC model architectures within its framework, refreshing the runtime dependencies, and keeping the existing LoRA and extension ecosystem working where possible.
 
 <sub>[中文](README.md) · **English**</sub>
 
 [![Base](https://img.shields.io/badge/based%20on-SD%20WebUI%20Forge-8A2BE2)](https://github.com/lllyasviel/stable-diffusion-webui-forge)
 [![Python](https://img.shields.io/badge/Python-3.10~3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Torch](https://img.shields.io/badge/torch-2.3~2.7%20/%20cu121~cu128-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-yellow.svg)](LICENSE.txt)
 
 </div>
 
----
+Forge is already very capable. I started this fork because I needed to run a few architectures it did not yet support (Anima, Z-Image, Qwen-Image), so I added native loading for them locally, and refreshed the tech stack along the way. It is experimental, with no stability guarantees.
 
-Forge *forged* optimizations and new models into SD WebUI. `-on` keeps the switch **on** — new model architectures, new LoRAs, new extensions, lit up one at a time.
+The `-on` suffix stands for keeping it "on" — following newer models and their ecosystem over time so they stay usable within the same WebUI.
 
-**In plain terms:** this is a personally maintained fork of [SD WebUI Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge). When Forge slowed down I picked it up to keep fixing bugs and refreshing dependencies — the main point being to **let architectures Forge can't load (Anima, Z-Image, Qwen-Image, …) load and generate right inside the same WebUI**, while trying not to break the existing LoRA and extension ecosystem.
+## Relation to Forge
 
-> Experimental, mostly for my own use. Try it and file issues, but don't expect official-grade stability guarantees.
+This fork is incremental on top of Forge; it does not change Forge's scope or duplicate what it already does. Upstream and original authors:
 
-## Lineage & credits
+- [lllyasviel/stable-diffusion-webui-forge](https://github.com/lllyasviel/stable-diffusion-webui-forge): the direct upstream, which rewrote memory management, sped up inference, and introduced many experimental features.
+- [AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui): the original Stable Diffusion WebUI; Forge is based on its 1.10.1.
 
-This project stands entirely on the work it's built on:
+Forge's own feature docs, tutorials and [NEWS](https://github.com/lllyasviel/stable-diffusion-webui-forge) still apply here.
 
-- **[lllyasviel/stable-diffusion-webui-forge](https://github.com/lllyasviel/stable-diffusion-webui-forge)** — *Forge*, the direct upstream. It rewrote memory management, sped up inference, and added many experimental features on top of SD WebUI. (The name "Forge" nods to Minecraft Forge.)
-- **[AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui)** — where it all started; Forge is based on its 1.10.1.
+## Added model architectures
 
-Forge's original tutorials / NEWS still apply — see the [Forge repo](https://github.com/lllyasviel/stable-diffusion-webui-forge). This fork only adds on top.
+The architectures below are used like any regular model: place the checkpoint in `models/Stable-diffusion/` and select it in the UI or API.
 
-## New native model architectures
-
-Forge natively understands only the SD1/SD2/SDXL/SD3/Flux families. The architectures below are **native** in this fork — drop the checkpoint into `models/Stable-diffusion/`, select it in the UI/API, and generate like any other model:
-
-| Model | Type | Notes | Docs |
+| Model | Architecture | Notes | Docs |
 |---|---|---|---|
-| **Anima** | Cosmos-Predict2 DiT + Qwen3 + LLM adapter | 2B; single-file DiT + assets | [ANIMA.md](ANIMA.md) |
-| **Z-Image / Z-Image-Turbo** | Tongyi NextDiT + Qwen3 + AutoencoderKL | ~6B; Turbo does 1024² in 8 steps | [ZIMAGE.md](ZIMAGE.md) |
-| **FLUX.1 Krea [dev]** | Flux architecture | runs on the existing Flux engine; fp8 fits a 24 GB card | [KREA.md](KREA.md) |
-| **Qwen-Image** | 20B MMDiT + Qwen2.5-VL | fp8 puts the 20B on a single 24 GB card; bf16 works on a larger one | [QWENIMAGE.md](QWENIMAGE.md) |
+| Anima | Cosmos-Predict2 DiT + Qwen3 + LLM adapter | 2B; single-file DiT with external text encoder + VAE | [ANIMA.md](ANIMA.md) |
+| Z-Image / Z-Image-Turbo | Tongyi NextDiT + Qwen3 + AutoencoderKL | ~6B; Turbo generates 1024² in 8 steps | [ZIMAGE.md](ZIMAGE.md) |
+| FLUX.1 Krea [dev] | Flux architecture | reuses Forge's existing Flux engine; fp8 runs on a single 24 GB GPU | [KREA.md](KREA.md) |
+| Qwen-Image | 20B MMDiT + Qwen2.5-VL | fp8 puts the 20B on a single 24 GB GPU; bf16 when memory allows | [QWENIMAGE.md](QWENIMAGE.md) |
 
-On **quantization**: models too big to fit (e.g. the 20B Qwen-Image) go through Forge's built-in quant path — drop in an fp8 / gguf single-file and Forge swaps `Linear` layers for quantized ops at load time. **If the quantized one runs, the bf16 one runs too** on a bigger card — same path, dtype auto-detected.
+For models that exceed available VRAM (e.g. the 20B Qwen-Image), the integration uses Forge's built-in quantized-loading path: provide an fp8 or gguf single-file, and at load time Forge replaces `Linear` layers with the corresponding quantized ops. So if the quantized build runs, the bf16 build runs too on a larger GPU — the same path, distinguished only by weight dtype.
 
-## What else changed
+## Dependencies and other changes
 
-- **Modernized deps, without dropping old GPUs.** Default stack moves to Python 3.12 + torch 2.7.1 / CUDA 12.8 + xformers; `requirements` prefer version ranges over hard pins, and for the deps that do need pinning I checked whether the used functions actually changed behavior. The old stack (RTX 20xx / CUDA 11) installs with a single command (below).
-- **Fixed the whole Flux family on newer diffusers.** diffusers ≥ 0.38 changed `FlowMatchEulerDiscreteScheduler.time_shift`'s signature and Forge's old call crashed; it's inlined now, so Flux / Krea load again.
-- **LoRA and extensions carried along.** Keeps Forge's LoRA loading and extension hooks working where possible; common extensions (e.g. regional control) are bundled.
-- **Adding an architecture is a documented method.** How to bring in the next one is written up as a reusable skill (below), with the pitfalls that actually cost time recorded (NaN schedules, velocity sign, timestep convention, masked variable-length conditioning, fp8 norms, 3D-VAE OOM).
+- The default stack is updated to Python 3.12 + torch 2.7.1 / CUDA 12.8 + xformers. `requirements` prefer version ranges over exact pins; where pinning is unavoidable, the behavior of the functions actually used was checked for changes. Older environments (RTX 20xx / CUDA 11) remain supported and install with a single command (below).
+- Fixed Flux-family loading on newer diffusers (≥ 0.38): the signature of `FlowMatchEulerDiscreteScheduler.time_shift` changed and broke Forge's original call; it is now inlined, restoring Flux and Krea.
+- Forge's LoRA loading and extension hooks are kept working where feasible, and common extensions (e.g. regional control) are bundled.
 
 ## Install
 
-Same as SD WebUI / Forge — install Git and Python, clone, run:
+Same as SD WebUI / Forge: install Git and Python, clone, and run.
 
 ```bash
 git clone <this-repo-url> stable-diffusion-webui-on
@@ -63,29 +55,29 @@ cd stable-diffusion-webui-on
 # webui-user.bat    # Windows
 ```
 
-For a faster, cleaner isolated env, use the bundled `uv` one-click script (default modern stack: Python 3.12 + torch 2.7.1 / cu128):
+For a cleaner isolated environment, use the bundled `uv` one-click script (modern stack by default):
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh   # if you don't have uv
+curl -LsSf https://astral.sh/uv/install.sh | sh   # if uv is not installed
 ./install.sh
 ./run.sh
 ```
 
-The same script installs the **old stack** via env vars (e.g. RTX 20xx / CUDA 11):
+The same script installs the older stack via environment variables, e.g. RTX 20xx / CUDA 11:
 
 ```bash
 PYTHON_VERSION=3.10 TORCH_VERSION=2.3.1 TORCHVISION_VERSION=0.18.1 \
 XFORMERS_VERSION=0.0.27 TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121 ./install.sh
 ```
 
-Each new architecture also needs extra components (text encoder / VAE); see its doc for what to download and where (locations are overridable via `ANIMA_ASSETS` / `ZIMAGE_ASSETS` / `QWENIMAGE_ASSETS`).
+Each new architecture also needs its own components (text encoder / VAE); see the respective document for what to download and where. Component locations can be set via `ANIMA_ASSETS` / `ZIMAGE_ASSETS` / `QWENIMAGE_ASSETS`.
 
-## Adding another architecture
+## Adding a new architecture
 
-The process is written up as a reusable skill: [`.claude/skills/add-model-architecture`](.claude/skills/add-model-architecture/SKILL.md).
+The integration process is documented as a skill: [`skills/add-model-architecture`](skills/add-model-architecture/SKILL.md).
 
-In one line: **first get the model running as a standalone diffusers/torch pipeline (your bit-exact reference), then wrap it as a Forge diffusion engine for native integration.** The parts that actually eat time — sampler NaNs, velocity sign, timestep = sigma vs 1-sigma, whether the conditioning needs a mask, fp8 weights, 3D-VAE memory — are all in there.
+The general approach: first reproduce the model as a standalone diffusers/torch pipeline to serve as a bit-exact reference, then wrap it as a Forge diffusion engine for native integration. The error-prone parts — NaNs in the sampling schedule, the sign of the velocity term, whether timestep is sigma or 1−sigma, whether variable-length text conditioning needs a mask, fp8 weight handling, and 3D-VAE memory — are all recorded there.
 
 ## License
 
-Inherits Forge / SD WebUI's license — see [LICENSE.txt](LICENSE.txt) (AGPL-3.0).
+Inherits Forge / SD WebUI's license; see [LICENSE.txt](LICENSE.txt) (AGPL-3.0).
