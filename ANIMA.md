@@ -4,8 +4,12 @@
 CircleStone Labs / Comfy Org — a finetune of **NVIDIA Cosmos-Predict2-2B** with a
 **Qwen3-0.6B** text encoder, an **LLM adapter** (T5 token IDs cross-attending Qwen3 hidden
 states), and the **Qwen-Image / Wan 2.1 VAE**. It is a Cosmos **DiT**, so Forge's UNet/SDXL
-backend cannot load it. `anima_infer.py` is a standalone diffusers/torch port of ComfyUI's
-Anima pipeline (no ComfyUI dependency).
+backend cannot load it. Anima is supported two ways here:
+
+1. **Natively in Forge** (recommended) — drop the checkpoint in `models/Stable-diffusion/`
+   and select it in the WebUI/API like any other model. See "Native Forge integration" below.
+2. **Standalone** — `anima_infer.py`, a self-contained diffusers/torch port of ComfyUI's
+   Anima pipeline (no ComfyUI dependency), handy for scripting and as a bit-exact reference.
 
 ## Components (download into `models/anima/`)
 - `diffusion_models/anima-base-v1.0.safetensors` — the Cosmos DiT (+ `net.llm_adapter`)
@@ -14,7 +18,28 @@ Anima pipeline (no ComfyUI dependency).
 - `tokenizer/` — Qwen3 tokenizer, `t5_tokenizer/` — T5 (32128 vocab) tokenizer
 - `loras/anima-turbo-lora-v0.2.safetensors` — optional Turbo LoRA
 
-## Usage
+## Native Forge integration
+Anima loads and generates in the WebUI/API with no extra flags. The single-file checkpoint
+holds only the DiT (`net.*`); the text encoder, tokenizers, LLM adapter weights and VAE are
+loaded from `ANIMA_ASSETS` (default `models/anima/`, layout as in "Components" above).
+
+- Put/symlink `anima-base-v1.0.safetensors` in `models/Stable-diffusion/`, pick it as the
+  checkpoint, and generate. Recommended: Euler sampler, 20–30 steps, CFG 4–6, 512²–1536².
+- Point `ANIMA_ASSETS=/path/to/assets` at another directory to override the component
+  location.
+
+Pieces (all version-controlled):
+- `backend/nn/anima.py` — the Cosmos-Predict2 DiT (`IntegratedAnima`, checkpoint keys `net.*`).
+- `backend/diffusion_engine/anima.py` — the `ForgeDiffusionEngine`: loads Qwen3 + tokenizers +
+  adapter + Wan VAE, builds the `[B,512,1024]` crossattn conditioning, VAE encode/decode.
+- `backend/nn/anima_hf_register.py` — idempotent runtime registration of the arch into the
+  git-ignored `huggingface_guess` vendor copy (detection + `model_list.Anima` + `latent.Wan21`).
+- `backend/modules/k_prediction.py::PredictionAnima` — rectified-flow (const) predictor;
+  `timestep(sigma)=sigma`, and `sigma(index)` maps index 0 to `sigma_min` (>0) so the sampler
+  never evaluates the model at sigma 0 (which would make `to_d=0/0` → NaN → black image).
+- `backend/loader.py` — routes `AnimaTransformer2DModel` → `IntegratedAnima`, registers engine.
+
+## Standalone usage
 ```bash
 CUDA_VISIBLE_DEVICES=0 ./venv/bin/python anima_infer.py \
   --prompt "masterpiece, best quality, score_7, safe, 1girl, silver hair, kimono, maple" \

@@ -1,16 +1,22 @@
 ---
 name: add-model-architecture
-description: Port a new text-to-image model architecture (a new DiT/UNet base model that Forge/A1111 or diffusers cannot load natively) into this project as a standalone inference pipeline. Use when asked to "support / 兼容 a new model architecture", run a model whose baseModel is unfamiliar (e.g. a Cosmos/Lumina/Qwen-Image/Anima-style DiT), or reproduce a ComfyUI-only model in plain diffusers/torch.
+description: Port a new text-to-image model architecture (a new DiT/UNet base model that Forge/A1111 or diffusers cannot load natively) into this project — first as a standalone inference pipeline to verify correctness, then as a native Forge diffusion engine so the checkpoint loads and generates in the WebUI/API. Use when asked to "support / 兼容 / 整合 a new model architecture", run a model whose baseModel is unfamiliar (e.g. a Cosmos/Lumina/Qwen-Image/Z-Image/Anima-style DiT), or reproduce a ComfyUI-only model in plain diffusers/torch.
 ---
 
 # Adding a new model architecture
 
 Forge/A1111's backend only understands SD1.x / SD2 / SDXL / Flux / SD3-style UNet
 checkpoints. Brand-new base models (DiT transformers with their own text encoder +
-VAE) won't load. This skill is the method for bringing one in as a standalone
-diffusers/torch pipeline (see `anima_infer.py` + `ANIMA.md` for a complete worked
-example: the **Anima** model = NVIDIA Cosmos-Predict2-2B DiT + Qwen3 text encoder +
-LLM adapter + Wan2.1 VAE).
+VAE) won't load. This skill is the method for bringing one in — first as a standalone
+diffusers/torch pipeline (fast to iterate + easy to verify), then wired **natively** into
+the Forge backend so the checkpoint loads and generates from the WebUI/API like any other
+model. See `anima_infer.py` (standalone) and `backend/diffusion_engine/anima.py` +
+`backend/nn/anima.py` + `backend/nn/anima_hf_register.py` (native) + `ANIMA.md` for a
+complete worked example: the **Anima** model = NVIDIA Cosmos-Predict2-2B DiT + Qwen3 text
+encoder + LLM adapter + Wan2.1 VAE.
+
+Do the standalone port first: it isolates the model math from Forge's loader/patcher/sampler
+plumbing, so when the native path misbehaves you already have a trusted reference to diff against.
 
 ## The one rule that matters
 **Verify every stage bit-exact against a reference implementation before trusting it.**
@@ -80,6 +86,58 @@ symlink the model files into its model dirs, and diff **each** stage on identica
 cos should be ~1.0 and max-abs-diff ~0 at every stage. The first stage that isn't is the
 bug. Then **delete the temp runtime** (don't leave multi-GB junk).
 
+## Step 7 — Wire it natively into Forge
+Once the standalone pipeline is bit-exact, integrate so the checkpoint loads in the UI/API.
+Five touch points (Anima example in parentheses):
+
+1. **Arch detection + config** — teach `huggingface_guess` to recognise the checkpoint and
+   emit its config. `repositories/huggingface_guess` is a **git-ignored vendor copy**, so do
+   NOT rely on editing it in place (a fresh clone loses the edit). Instead write a
+   version-controlled, **idempotent** runtime-registration module that injects:
+   - a `detection.detect_unet_config` wrapper that returns the DiT config when it sees a
+     signature key (`net.llm_adapter.blocks.0.self_attn.q_proj.weight`), else defers;
+   - a `latent.<Format>` class (the mean/std latent format);
+   - a `model_list.<Arch>(BASE)` config (`unet_config`, `sampling_settings` shift/multiplier,
+     `latent_format`, `supported_inference_dtypes`, `model_type()` → `ModelType.FLOW`,
+     `clip_target()`), appended to `model_list.models`.
+   (`backend/nn/anima_hf_register.py`; import + call `register()` from the engine module
+   *before* it references `model_list.<Arch>`.) Make every step guard on existence so it is a
+   no-op when the vendor copy is already patched.
+2. **DiT loader routing** — in `backend/loader.py` add the diffusers `cls_name`
+   (`AnimaTransformer2DModel`) to the transformer branch and map it to your
+   `Integrated<Arch>` `nn.Module`. Add a `backend/huggingface/<Arch>/model_index.json` stub
+   naming that `cls_name` so the guess resolves to it.
+3. **Diffusion engine** — `backend/diffusion_engine/<arch>.py`, a `ForgeDiffusionEngine`
+   subclass with `matched_guesses = [model_list.<Arch>]`. It loads the extra components the
+   single-file DiT doesn't contain (text encoder, tokenizers, adapter, VAE) from an assets
+   dir; implements `get_learned_conditioning` (return the crossattn **tensor** if there is no
+   pooled vector — `compile_conditions` then takes the crossattn-only path, no `'vector'`
+   KeyError), `encode_first_stage` / `decode_first_stage` (VAE + latent_format), and sets the
+   predictor on the UnetPatcher.
+4. **Predictor** — a `Prediction*` in `backend/modules/k_prediction.py` for the sampler.
+5. **Register the engine** — import it in `backend/loader.py` and add to `possible_models`.
+
+## Step 8 — Debug native generation with stage prints, then remove them
+The standalone port is your oracle. If the native image is black/NaN/mush, gate temporary
+prints behind an env var and compare the native `(x_in std, timestep, context std, latent
+std, decoded min/max)` against the standalone at the same step. Black image = NaN somewhere;
+uniform-nonzero = a scaling/normalization mismatch. **Remove the prints once it works.**
+
+### The NaN-black-image trap (rectified flow + k-diffusion)
+`ForgeScheduleLinker.get_sigmas(n)` builds the sampling schedule as
+`append_zero(predictor.sigma(linspace(len(sigmas)-1, 0, n)))` — i.e. it calls your
+predictor's `sigma(t)` on buffer **indices** `t ∈ [0, len-1]`, then appends a terminal 0.
+The k-diffusion Euler loop runs `for i in range(len(sigmas)-1)`, so it evaluates the model at
+every entry **except** the appended terminal. If your `sigma(index)` returns exactly 0 at
+`index == 0` (e.g. `time_snr_shift(shift, t/1000)` with `t=0`), the last *sampled* sigma is 0,
+and `to_d = (x - denoised)/sigma = 0/0 = NaN` → black image. Fix: make `sigma(index)` map
+index 0 to `sigma_min` (>0), e.g. `time_snr_shift(shift, (t+1)/timesteps)`, so only the
+never-evaluated terminal is 0. Symptoms to recognise: DiT forward is clean at every step
+(`nan=False`) but the final latent going into decode is `nan=True`; and the printed timestep
+of the last step is exactly `0.0`. (Do NOT "fix" this by making `timestep()`/`sigma()` mutual
+identities on the raw sigma — that makes the scheduler read indices as sigmas, giving
+`sigma_max≈999` and blowing up `x_in`.)
+
 ## Pitfalls seen in practice
 - `out_proj(norm(x))` vs `norm(out_proj(x))` — order matters (RMSNorm ⊄ Linear).
 - RoPE "split-half" (`[:d/2],[d/2:]`) vs interleaved; HF `rotate_half` with duplicated
@@ -91,3 +149,8 @@ bug. Then **delete the temp runtime** (don't leave multi-GB junk).
 - A symptom where **img2img refines fine but text-to-image is mush** points at the
   conditioning/context path (the DiT and VAE are probably fine) — diff the text→context
   stages.
+- Editing `repositories/huggingface_guess` (or anything under `repositories/`) directly:
+  it's git-ignored, so the change vanishes on a fresh clone. Register the arch at runtime
+  from a tracked module instead (Step 7.1).
+- `fp16` on a DiT with a large residual stream (Cosmos-Predict2) overflows to NaN — declare
+  `supported_inference_dtypes = [torch.bfloat16, torch.float32]` so Forge never picks fp16.
