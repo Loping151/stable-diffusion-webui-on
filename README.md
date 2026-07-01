@@ -47,6 +47,28 @@ The launcher creates a virtual environment and installs dependencies on first
 run. If you want an all-in-one one-click Windows package instead, use Forge's
 [release packages](https://github.com/lllyasviel/stable-diffusion-webui-forge/releases).
 
+## New model architectures
+
+Beyond the SD1/SD2/SDXL/SD3/Flux families Forge already supports, this fork adds
+native, in-WebUI support for several newer text-to-image architectures — select the
+checkpoint and generate like any other model:
+
+| Model | Type | Notes | Docs |
+|-------|------|-------|------|
+| **Anima** | Cosmos-Predict2 DiT + Qwen3 + LLM adapter | 2B; single-file DiT + assets | [ANIMA.md](ANIMA.md) |
+| **Z-Image / Z-Image-Turbo** | Tongyi NextDiT + Qwen3 + AutoencoderKL | ~6B; Turbo runs in 8 steps @ 1024² | [ZIMAGE.md](ZIMAGE.md) |
+| **FLUX.1 Krea [dev]** | Flux architecture | runs on the existing Flux engine (fp8 fits a 24 GB card) | [KREA.md](KREA.md) |
+
+Adding a further architecture is documented as a reusable method in
+[`.claude/skills/add-model-architecture`](.claude/skills/add-model-architecture/SKILL.md)
+(standalone bring-up → bit-exact verification → native Forge integration, with the
+pitfalls that actually cost time: NaN schedules, velocity sign, timestep convention,
+masked variable-length conditioning).
+
+> **Qwen-Image** (20B MMDiT + Qwen2.5-VL): the diffusers-backed integration pattern used
+> above applies, but the 40 GB bf16 weights exceed a single 24 GB GPU and the fp8 path
+> needs custom quantized-compute support, so it is not enabled by default on this hardware.
+
 ## License
 
 See [LICENSE.txt](LICENSE.txt). This project inherits the licensing of
