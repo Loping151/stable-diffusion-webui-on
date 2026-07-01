@@ -1,4 +1,5 @@
 import os
+import glob
 import torch
 
 # Inject the Anima architecture into the git-ignored huggingface_guess vendor copy before we
@@ -17,10 +18,54 @@ from backend.nn.anima import LLMAdapter
 # Components that are not part of the single-file DiT checkpoint (Qwen3 text encoder, its
 # tokenizer, the T5 tokenizer used by the LLM adapter, and the Wan/Qwen-Image VAE) are loaded
 # from this directory. Point ANIMA_ASSETS at another dir to override.
+#
+# The layout is filename-agnostic: the text encoder and VAE are located by common names and
+# glob patterns, so files packaged differently (e.g. Civitai's `anima_baseV10_txt.safetensors`
+# and `anima_baseV10.safetensors`) work without renaming. Individual paths can also be pinned
+# via ANIMA_TEXT_ENCODER / ANIMA_VAE / ANIMA_QWEN_TOKENIZER / ANIMA_T5_TOKENIZER.
 ANIMA_ASSETS = os.environ.get(
     "ANIMA_ASSETS",
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models", "anima"),
 )
+
+# Tokenizers are small and bundled in the repo so a bare Civitai download (DiT + text encoder +
+# VAE, no tokenizer) still works out of the box.
+_BUNDLED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "huggingface", "Anima")
+
+
+def _resolve_file(env_var, dirs, exact_names, globs, what):
+    """Locate a component file: explicit env override, then known names, then glob heuristics."""
+    v = os.environ.get(env_var)
+    if v:
+        if os.path.isfile(v):
+            return v
+        raise FileNotFoundError(f"{env_var}={v!r} is set but not a file")
+    for d in dirs:
+        for name in exact_names:
+            fp = os.path.join(d, name)
+            if os.path.isfile(fp):
+                return fp
+    for d in dirs:
+        for pat in globs:
+            hits = sorted(glob.glob(os.path.join(d, pat)))
+            if hits:
+                return hits[0]
+    raise FileNotFoundError(
+        f"Anima {what} not found. Set {env_var} to its path, or place it under {ANIMA_ASSETS} "
+        f"(looked for {exact_names} or {globs})."
+    )
+
+
+def _resolve_dir(env_var, candidates):
+    v = os.environ.get(env_var)
+    if v:
+        if os.path.isdir(v):
+            return v
+        raise FileNotFoundError(f"{env_var}={v!r} is set but not a directory")
+    for d in candidates:
+        if os.path.isdir(d) and os.listdir(d):
+            return d
+    return candidates[-1]  # bundled fallback
 
 
 class _WanVAEWrapper:
@@ -49,11 +94,22 @@ class Anima(ForgeDiffusionEngine):
         self.te_dtype = memory_management.text_encoder_dtype()
 
         # --- text encoders / tokenizers ---
-        self.qwen_tok = AutoTokenizer.from_pretrained(os.path.join(ANIMA_ASSETS, "tokenizer"))
-        self.t5_tok = AutoTokenizer.from_pretrained(os.path.join(ANIMA_ASSETS, "t5_tokenizer"))
+        self.qwen_tok = AutoTokenizer.from_pretrained(_resolve_dir(
+            "ANIMA_QWEN_TOKENIZER",
+            [os.path.join(ANIMA_ASSETS, "tokenizer"), os.path.join(_BUNDLED_DIR, "tokenizer")]))
+        self.t5_tok = AutoTokenizer.from_pretrained(_resolve_dir(
+            "ANIMA_T5_TOKENIZER",
+            [os.path.join(ANIMA_ASSETS, "t5_tokenizer"), os.path.join(_BUNDLED_DIR, "t5_tokenizer")]))
 
-        qsd = load_file(os.path.join(ANIMA_ASSETS, "text_encoders", "qwen_3_06b_base.safetensors"))
-        qsd = {k[len("model."):]: v for k, v in qsd.items() if k.startswith("model.")}
+        te_path = _resolve_file(
+            "ANIMA_TEXT_ENCODER",
+            dirs=[os.path.join(ANIMA_ASSETS, "text_encoders"), ANIMA_ASSETS],
+            exact_names=["qwen_3_06b_base.safetensors", "anima_baseV10_txt.safetensors"],
+            globs=["*txt*.safetensors", "*qwen*3*.safetensors", "qwen_3*.safetensors"],
+            what="text encoder")
+        qsd = load_file(te_path)
+        stripped = {k[len("model."):]: v for k, v in qsd.items() if k.startswith("model.")}
+        qsd = stripped if stripped else qsd
         qcfg = Qwen3Config(vocab_size=151936, hidden_size=1024, intermediate_size=3072,
                            num_hidden_layers=28, num_attention_heads=16, num_key_value_heads=8,
                            head_dim=128, max_position_embeddings=40960, rms_norm_eps=1e-6,
@@ -64,8 +120,14 @@ class Anima(ForgeDiffusionEngine):
         self.qwen.requires_grad_(False)
 
         # --- Wan / Qwen-Image VAE ---
+        vae_path = _resolve_file(
+            "ANIMA_VAE",
+            dirs=[os.path.join(ANIMA_ASSETS, "vae"), ANIMA_ASSETS],
+            exact_names=["qwen_image_vae.safetensors"],
+            globs=["*vae*.safetensors"],
+            what="VAE")
         vae_model = AutoencoderKLWan.from_single_file(
-            os.path.join(ANIMA_ASSETS, "vae", "qwen_image_vae.safetensors"), torch_dtype=torch.float32
+            vae_path, torch_dtype=torch.float32
         ).eval()
         vae_model.requires_grad_(False)
         self.wan_vae = vae_model
@@ -100,6 +162,14 @@ class Anima(ForgeDiffusionEngine):
         outs = []
         for p in prompt:
             qids = self.qwen_tok(p, return_tensors="pt", add_special_tokens=False).input_ids.to(dev)
+            if qids.shape[1] == 0:
+                # empty prompt (e.g. no negative prompt) tokenizes to nothing; feed a single
+                # token so Qwen3's attention has non-zero length instead of crashing on a
+                # 0-length reshape.
+                fallback = self.qwen_tok.eos_token_id
+                if fallback is None:
+                    fallback = self.qwen_tok.pad_token_id or 0
+                qids = torch.tensor([[fallback]], device=dev, dtype=torch.long)
             qh = self.qwen(input_ids=qids).last_hidden_state.to(dt)
             t5 = self.t5_tok(p, return_tensors="pt").input_ids.to(dev)
             c = self.adapter(t5, qh)
