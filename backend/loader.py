@@ -23,12 +23,20 @@ from backend.diffusion_engine.sdxl import StableDiffusionXL, StableDiffusionXLRe
 from backend.diffusion_engine.sd35 import StableDiffusion3
 from backend.diffusion_engine.flux import Flux
 from backend.diffusion_engine.chroma import Chroma
-from backend.diffusion_engine.anima import Anima
-from backend.diffusion_engine.zimage import ZImage
-from backend.diffusion_engine.qwenimage import QwenImage
 
 
-possible_models = [StableDiffusion, StableDiffusion2, StableDiffusionXLRefiner, StableDiffusionXL, StableDiffusion3, Chroma, Flux, Anima, ZImage, QwenImage]
+possible_models = [StableDiffusion, StableDiffusion2, StableDiffusionXLRefiner, StableDiffusionXL, StableDiffusion3, Chroma, Flux]
+
+# Newer architectures need newer diffusers/transformers (ZImage/QwenImage transformer classes,
+# AutoencoderKLWan, Qwen3/Qwen2.5-VL, ...). Import them defensively so an install with older
+# dependencies still boots and the core models keep working; an architecture whose deps are
+# missing is simply unavailable until the environment is upgraded.
+for _eng_mod, _eng_cls in (("anima", "Anima"), ("zimage", "ZImage"), ("qwenimage", "QwenImage")):
+    try:
+        _eng = importlib.import_module(f"backend.diffusion_engine.{_eng_mod}")
+        possible_models.append(getattr(_eng, _eng_cls))
+    except Exception as _e:
+        logging.warning(f"[loader] architecture '{_eng_cls}' unavailable (missing deps?): {_e}")
 
 
 logging.getLogger("diffusers").setLevel(logging.ERROR)
