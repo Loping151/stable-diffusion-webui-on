@@ -16,7 +16,27 @@ backend cannot load it. Anima is supported two ways here:
 - `text_encoders/qwen_3_06b_base.safetensors` — Qwen3-0.6B base text encoder
 - `vae/qwen_image_vae.safetensors` — Qwen-Image (Wan 2.1) 16-ch 3D VAE
 - `tokenizer/` — Qwen3 tokenizer, `t5_tokenizer/` — T5 (32128 vocab) tokenizer
+  (both are also bundled under `backend/huggingface/Anima/`, so you don't strictly need them)
 - `loras/anima-turbo-lora-v0.2.safetensors` — optional Turbo LoRA
+
+Sources: HuggingFace [`circlestone-labs/Anima`](https://huggingface.co/circlestone-labs/Anima)
+(DiT + text encoder + VAE) and [`circlestone-labs/Anima-Official-LoRAs`](https://huggingface.co/circlestone-labs/Anima-Official-LoRAs)
+(Turbo LoRA), or Civitai (see next).
+
+### Civitai downloads
+Civitai ships the same three components under different names and without tokenizers, e.g.
+`anima_baseV10.safetensors` (DiT), `anima_baseV10_txt.safetensors` (text encoder) and
+`qwen_image_vae.safetensors` (VAE). They work as-is — the internal key layout is identical:
+put the DiT in `models/Stable-diffusion/`, drop the text encoder and VAE anywhere under
+`ANIMA_ASSETS` (they're located by name/glob, no renaming needed), and the bundled tokenizers
+cover the rest.
+
+### Asset config (env vars)
+`ANIMA_ASSETS` is the base directory; individual components can be pinned when auto-discovery
+isn't enough:
+- `ANIMA_TEXT_ENCODER` — path to the Qwen3 text-encoder `.safetensors`
+- `ANIMA_VAE` — path to the VAE `.safetensors`
+- `ANIMA_QWEN_TOKENIZER` / `ANIMA_T5_TOKENIZER` — tokenizer directories (default: bundled)
 
 ## Native Forge integration
 Anima loads and generates in the WebUI/API with no extra flags. The single-file checkpoint
