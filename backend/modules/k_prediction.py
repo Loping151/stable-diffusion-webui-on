@@ -330,3 +330,46 @@ def k_prediction_from_diffusers_scheduler(scheduler):
                               timesteps=scheduler.config.num_train_timesteps)
 
     raise NotImplementedError(f'Failed to recognize {scheduler}')
+
+
+class PredictionAnima(AbstractPrediction):
+    """Rectified-flow (const) predictor for Anima's Cosmos-Predict2 DiT.
+
+    Schedule: time_snr_shift(shift) over 1000 steps, sigmas strictly in (0, 1].
+    timestep(sigma) is the identity because the Cosmos DiT consumes the raw sigma (0..1)
+    as its conditioning timestep (multiplier 1.0), not sigma*1000.
+
+    sigma(t) maps a buffer INDEX t (0..timesteps-1, as produced by
+    ForgeScheduleLinker.get_sigmas' linspace(t_max, 0, n)) back to a sigma. The +1 offset
+    makes index 0 map to sigma_min (>0) rather than 0 -- mirroring discrete t_to_sigma
+    semantics where t_to_sigma(0)=sigmas[0]. Without it the schedule's last *sampled*
+    step would be sigma==0, so the k-diffusion sampler would evaluate
+    to_d = (x - denoised)/sigma = 0/0 -> NaN and produce a black image (only the
+    append_zero terminal, which the sampler never feeds to the model, may be 0)."""
+    def __init__(self, shift=3.0, timesteps=1000):
+        super().__init__(sigma_data=1.0, prediction_type='const')
+        self.shift = shift
+        self.timesteps = timesteps
+        idx = torch.arange(1, timesteps + 1, 1).float()
+        self.register_buffer('sigmas', time_snr_shift(shift, idx / timesteps))
+
+    @property
+    def sigma_min(self):
+        return self.sigmas[0]
+
+    @property
+    def sigma_max(self):
+        return self.sigmas[-1]
+
+    def timestep(self, sigma):
+        return sigma
+
+    def sigma(self, t):
+        return time_snr_shift(self.shift, (t + 1.0) / self.timesteps)
+
+    def percent_to_sigma(self, percent):
+        if percent <= 0.0:
+            return 1.0
+        if percent >= 1.0:
+            return 0.0
+        return 1.0 - percent

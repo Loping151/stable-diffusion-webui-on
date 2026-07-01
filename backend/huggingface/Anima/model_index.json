@@ -1,0 +1,8 @@
+{
+  "_class_name": "AnimaPipeline",
+  "_diffusers_version": "0.30.0",
+  "transformer": [
+    "diffusers",
+    "AnimaTransformer2DModel"
+  ]
+}
