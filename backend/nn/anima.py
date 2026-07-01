@@ -232,8 +232,8 @@ class LLMAdapter(nn.Module):
         return self.norm(self.out_proj(x))   # order matters: out_proj THEN norm
 
 
-class IntegratedAnima(nn.Module):
-    """Forge diffusion_model for Anima. forward(x, timestep, context, t5xxl_ids=..., ...)."""
+class AnimaNet(nn.Module):
+    """The `net.*` submodule of the Anima checkpoint (Cosmos-Predict2 DiT + LLM adapter)."""
 
     def __init__(self, in_channels=16, out_channels=16, model_channels=2048, num_blocks=28,
                  num_heads=16, mlp_ratio=4.0, crossattn_emb_channels=1024, patch_spatial=2,
@@ -297,3 +297,15 @@ class IntegratedAnima(nn.Module):
         if squeeze_out:
             out = out.squeeze(2)
         return out
+
+
+class IntegratedAnima(nn.Module):
+    """Forge diffusion_model wrapper. The checkpoint stores the DiT under `net.*`, so the
+    real model lives in self.net. forward(x, timestep, context, t5xxl_ids=..., ...)."""
+
+    def __init__(self, **config):
+        super().__init__()
+        self.net = AnimaNet(**config)
+
+    def forward(self, x, timestep, context, **kwargs):
+        return self.net(x, timestep, context, **kwargs)
