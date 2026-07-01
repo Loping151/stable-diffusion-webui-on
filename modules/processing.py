@@ -849,6 +849,35 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
     return res
 
 
+def _apply_anima_turbo(p):
+    """Anima Turbo: when opts.anima_turbo is on and an Anima checkpoint is loaded, distill the
+    request to few-step / low-CFG sampling by injecting the turbo (step+CFG distillation) LoRA
+    and forcing the configured steps/CFG. No-op for any other architecture or when off. Must run
+    before setup_prompts so the injected LoRA tag propagates into all_prompts."""
+    if not getattr(opts, 'anima_turbo', False):
+        return
+    if not getattr(p.sd_model, 'is_anima', False):
+        return
+    lora_name = (getattr(opts, 'anima_turbo_lora', '') or '').strip()
+    if not lora_name:
+        return
+    weight = getattr(opts, 'anima_turbo_weight', 1.0)
+    tag = f"<lora:{lora_name}:{weight}>"
+
+    def _inject(prompt):
+        if prompt and lora_name in prompt:  # already present (e.g. preset) -> don't double
+            return prompt
+        return f"{tag}, {prompt}" if (prompt and prompt.strip()) else tag
+
+    if isinstance(p.prompt, list):
+        p.prompt = [_inject(x) for x in p.prompt]
+    else:
+        p.prompt = _inject(p.prompt)
+
+    p.steps = int(getattr(opts, 'anima_turbo_steps', 10))
+    p.cfg_scale = float(getattr(opts, 'anima_turbo_cfg', 1.0))
+
+
 def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     """this is the main loop that both txt2img and img2img use; it calls func_init once inside all the scopes and func_sample once per batch"""
 
@@ -886,6 +915,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     p.sd_model.extra_generation_params = {}
 
     p.fill_fields_from_opts()
+    _apply_anima_turbo(p)  # inject turbo LoRA + clamp steps/CFG before prompts are built
     p.setup_prompts()
 
     if isinstance(seed, list):

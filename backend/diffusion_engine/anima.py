@@ -85,6 +85,7 @@ class Anima(ForgeDiffusionEngine):
     def __init__(self, estimated_config, huggingface_components):
         super().__init__(estimated_config, huggingface_components)
         self.is_inpaint = False
+        self.is_anima = True  # arch marker (base engine leaves it unset); used by e.g. Anima Turbo
 
         from transformers import AutoTokenizer, Qwen3Config, Qwen3Model
         from diffusers import AutoencoderKLWan
