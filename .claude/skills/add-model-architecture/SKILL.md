@@ -117,6 +117,29 @@ Five touch points (Anima example in parentheses):
 4. **Predictor** — a `Prediction*` in `backend/modules/k_prediction.py` for the sampler.
 5. **Register the engine** — import it in `backend/loader.py` and add to `possible_models`.
 
+## Step 7.5 — Running a checkpoint too big for VRAM (quantization)
+If the bf16 weights exceed the GPU (e.g. a 20B model on 24 GB), do NOT reimplement the DiT with
+Forge ops — reuse Forge's built-in quantization path:
+- Feed Forge a **quantized single-file checkpoint** (fp8_e4m3fn / nf4 / gguf). The loader
+  (`backend/loader.py::load_huggingface_component`) auto-detects the dtype and builds the model
+  inside `using_forge_operations(..., bnb_dtype=...)`, which **monkeypatches `torch.nn.Linear`/
+  `Conv`** for the duration of construction. Because your `IntegratedX` *subclasses the diffusers
+  model*, its internal `nn.Linear` layers become Forge's quantization-aware ops automatically —
+  no model-specific quant code. The bf16 checkpoint still loads unchanged on a bigger card (same
+  path, dtype auto-detected), so "get the quantized one working" also gets bf16 working.
+- **Non-Linear fp8 params bite.** A checkpoint that quantizes *everything* leaves RMSNorm /
+  LayerNorm / Embedding weights in fp8, and those do raw multiplies/lookups Forge doesn't patch
+  → `RuntimeError: Promotion for Float8 Types is not supported`. In the engine, after the model
+  is loaded, cast every fp8 param that is NOT a Linear/Conv weight back up to the compute dtype
+  (iterate `.modules()`, skip `nn.Linear`/`nn.Conv*`, recast the rest). The Linear weights stay
+  quantized so the memory win survives.
+- **Memory-heavy VAE.** A 3D/causal VAE decode can OOM next to a multi-B DiT even when sampling
+  fit. Enable `vae.enable_tiling()` + `enable_slicing()` and free the DiT from VRAM before decode
+  (`memory_management.free_memory(1e30, device, free_all=True)`).
+- The Comfy-Org repackaged single-files use diffusers key naming (diffusers' single-file mapping
+  is often the identity), so no key conversion is needed — verify with a 0-missing/0-unexpected
+  `load_state_dict` against your `IntegratedX`.
+
 ## Step 8 — Debug native generation with stage prints, then remove them
 The standalone port is your oracle. If the native image is black/NaN/mush, gate temporary
 prints behind an env var and compare the native `(x_in std, timestep, context std, latent
