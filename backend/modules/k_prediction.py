@@ -297,7 +297,12 @@ class PredictionFlux(AbstractPrediction):
         else:
             self.mu = mu
         sigmas = torch.arange(1, self.pseudo_timestep_range + 1, 1) / self.pseudo_timestep_range
-        sigmas = FlowMatchEulerDiscreteScheduler.time_shift(None, self.mu, 1.0, sigmas)
+        # Flux exponential time-shift. Older diffusers let us call the unbound
+        # FlowMatchEulerDiscreteScheduler.time_shift with `None` for self; diffusers >= 0.38
+        # makes time_shift read self.config.time_shift_type, so time_shift(None, ...) raises
+        # AttributeError. Inline the exponential form (Flux's default) to stay version-agnostic:
+        #   exp(mu) / (exp(mu) + (1/t - 1) ** sigma), with sigma = 1.0
+        sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1.0 / sigmas - 1.0) ** 1.0)
         self.register_buffer('sigmas', sigmas)
 
     @property
