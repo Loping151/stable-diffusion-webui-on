@@ -373,3 +373,20 @@ class PredictionAnima(AbstractPrediction):
         if percent >= 1.0:
             return 0.0
         return 1.0 - percent
+
+
+class PredictionZImage(PredictionAnima):
+    """Rectified-flow (const) predictor for Z-Image (Tongyi NextDiT).
+
+    Same time_snr_shift(shift) schedule and CONST math as Anima, but the DiT uses the
+    *inverted* flow-matching time convention: t=0 is pure noise (sigma=1) and t=1 is clean
+    data (sigma=0), matching the diffusers ZImagePipeline which feeds the transformer
+    `(1000 - sigma*1000)/1000 == 1 - sigma`. So timestep(sigma) = 1 - sigma. The Euler
+    update is identical to diffusers' FlowMatchEulerDiscreteScheduler
+    (`x += (sigma_next - sigma) * v`), so the model's velocity is used verbatim (no sign
+    flip). sigma(index) still floors at sigma_min (>0) to avoid the to_d=0/0 NaN."""
+    def __init__(self, shift=3.0, timesteps=1000):
+        super().__init__(shift=shift, timesteps=timesteps)
+
+    def timestep(self, sigma):
+        return 1.0 - sigma
