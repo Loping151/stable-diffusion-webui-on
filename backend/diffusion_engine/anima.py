@@ -126,8 +126,12 @@ class Anima(ForgeDiffusionEngine):
             exact_names=["qwen_image_vae.safetensors"],
             globs=["*vae*.safetensors"],
             what="VAE")
+        # Load with a repo-bundled config so from_single_file never reaches out to HuggingFace
+        # for the AutoencoderKLWan config (installs behind no proxy / offline would otherwise
+        # hang retrying Wan-AI/Wan2.1-T2V-14B-Diffusers).
         vae_model = AutoencoderKLWan.from_single_file(
-            vae_path, torch_dtype=torch.float32
+            vae_path, config=os.path.join(_BUNDLED_DIR, "vae"),
+            local_files_only=True, torch_dtype=torch.float32
         ).eval()
         vae_model.requires_grad_(False)
         self.wan_vae = vae_model
