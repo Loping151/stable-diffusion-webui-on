@@ -296,6 +296,17 @@ def model_lora_keys_unet(model, key_map={}):
             else:
                 key_map["{}".format(k)] = k #generic lora format for not .weight without any weird key names
 
+            # Some DiTs (e.g. Anima) wrap the network under `.net.` because the checkpoint keys
+            # are `net.*`, but community LoRAs (ai-toolkit, PEFT) name modules as
+            # `diffusion_model.<module>` without that wrapper. Register a net-stripped alias so
+            # those LoRAs match. Adds only extra lookup entries, so it can't break other models.
+            if ".net." in k:
+                nk = k.replace(".net.", ".", 1)
+                if nk.endswith(".weight"):
+                    key_map["{}".format(nk[:-len(".weight")])] = k
+                else:
+                    key_map["{}".format(nk)] = k
+
     diffusers_keys = utils.unet_to_diffusers(model.diffusion_model.config)
     for k in diffusers_keys:
         if k.endswith(".weight"):
