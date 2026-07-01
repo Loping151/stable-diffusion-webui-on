@@ -303,7 +303,13 @@ def model_lora_keys_unet(model, key_map={}):
             if ".net." in k:
                 nk = k.replace(".net.", ".", 1)
                 if nk.endswith(".weight"):
-                    key_map["{}".format(nk[:-len(".weight")])] = k
+                    key_map["{}".format(nk[:-len(".weight")])] = k  # generic/PEFT (diffusion_model.<module>)
+                    # kohya-style net-stripped alias (lora_unet_<module_with_underscores>), so kohya
+                    # Anima LoRAs like `lora_unet_blocks_0_cross_attn_k_proj` match too — not only the
+                    # PEFT/diffusers-named ones handled by the generic alias above.
+                    if nk.startswith("diffusion_model."):
+                        key_lora_ns = nk[len("diffusion_model."):-len(".weight")].replace(".", "_")
+                        key_map["lora_unet_{}".format(key_lora_ns)] = k
                 else:
                     key_map["{}".format(nk)] = k
 
