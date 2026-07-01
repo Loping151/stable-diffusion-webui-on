@@ -31,8 +31,8 @@ it was never directly diffed.)
   architecture (e.g. `nvidia/Cosmos-Predict2-2B-Text2Image`). The `library_name`
   (`diffusion-single-file`) and a `comfyui` tag mean "ComfyUI-native, not diffusers".
 - Civitai: the `baseModel` field (e.g. `Anima`, `Illustrious`, `NoobAI`, `Pony`) is the
-  architecture family. Use the Civitai API to read it (see the `lora` workflow / civitai
-  token convention; civitai needs the proxy).
+  architecture family. Read it via the Civitai API with your own API token (Civitai may need
+  a proxy in some regions).
 - Note the **components**: a DiT usually ships a diffusion model + a *separate* text
   encoder + a *separate* VAE. Read the model card "installing" section — it lists which
   file goes in `diffusion_models/`, `text_encoders/`, `vae/`.

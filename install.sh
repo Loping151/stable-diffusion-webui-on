@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# xwsdwebui one-click installer (uv-based, fast).
+# stable-diffusion-webui-on — one-click installer (uv-based, fast).
 #
 # Creates an isolated virtual environment and installs a modern stack:
 #   Python 3.12 (override with PYTHON_VERSION) + torch 2.7.1 / CUDA 12.8 + xformers.

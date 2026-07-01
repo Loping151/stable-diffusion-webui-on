@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# xwsdwebui launcher.
+# stable-diffusion-webui-on — launcher.
 #
 # Defaults to the first GPU (CUDA0). Override the card with e.g. CUDA_VISIBLE_DEVICES=1 ./run.sh
 # Local launch flags are read from webui-user.sh (COMMANDLINE_ARGS); extra args are passed through:
