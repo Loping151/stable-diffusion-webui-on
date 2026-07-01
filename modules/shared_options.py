@@ -302,9 +302,9 @@ options_templates.update(options_section(('extra_networks', "Extra Networks", "s
 options_templates.update(options_section(('anima_turbo', "Anima Turbo", "sd"), {
     "anima_turbo": OptionInfo(False, "Enable Anima Turbo").info("only affects Anima checkpoints: auto-applies a step/CFG-distillation LoRA and forces the low-step / CFG settings below. Toggle here or via API (/sdapi/v1/options). No effect on SDXL/other models."),
     "anima_turbo_lora": OptionInfo("anima-turbo-lora-v0.2", "Turbo LoRA name").info("filename in models/Lora without .safetensors"),
-    "anima_turbo_weight": OptionInfo(1.0, "Turbo LoRA weight", gr.Slider, {"minimum": 0.1, "maximum": 1.2, "step": 0.05}).info("lower = more variety / less 'slop'"),
-    "anima_turbo_steps": OptionInfo(10, "Turbo steps", gr.Slider, {"minimum": 4, "maximum": 20, "step": 1}),
-    "anima_turbo_cfg": OptionInfo(1.0, "Turbo CFG scale", gr.Slider, {"minimum": 1.0, "maximum": 4.0, "step": 0.5}).info("distilled LoRA expects CFG 1"),
+    "anima_turbo_weight": OptionInfo(0.8, "Turbo LoRA weight", gr.Slider, {"minimum": 0.1, "maximum": 1.2, "step": 0.05}).info("lower = more variety / less 'slop'; 0.8 keeps detail, 1.0 is flatter"),
+    "anima_turbo_steps": OptionInfo(12, "Turbo steps", gr.Slider, {"minimum": 4, "maximum": 20, "step": 1}),
+    "anima_turbo_cfg": OptionInfo(2.0, "Turbo CFG scale", gr.Slider, {"minimum": 1.0, "maximum": 4.0, "step": 0.5}).info("distilled LoRA is tuned for CFG 1, but CFG 1 disables the negative prompt entirely (no watermark/quality suppression); 2 keeps most of the speedup while restoring negatives"),
 }))
 
 options_templates.update(options_section(('ui_prompt_editing', "Prompt editing", "ui"), {
