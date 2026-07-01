@@ -34,8 +34,23 @@ API example:
 }
 ```
 
+## Any Civitai Flux checkpoint (quantized)
+Krea is just one Flux model; the same setup runs **any** Flux checkpoint from Civitai. Most
+Civitai Flux files are **unet-only** (the DiT alone, often fp8 / gguf / nf4 — despite the
+`size=full` label, which means "full-precision fp8", not "all-in-one"). For those you supply
+the shared **T5 + CLIP + VAE once** (the three files above) and reuse them across every Flux
+checkpoint — pick them in the WebUI's *VAE / Text Encoder* selector, or pass
+`forge_additional_modules` via the API. A true all-in-one Flux single file (with the text
+encoders and VAE bundled) loads on its own, no modules needed.
+
+Quantized DiTs are first-class here (Forge is a forge-native engine for Flux): **fp8 /
+fp8_scaled / nf4 / fp4 / gguf** are auto-detected from the checkpoint and loaded through
+Forge's quantized-compute path, so a 12B Flux fits a 24 GB card. Verified with a real Civitai
+fp8 unet-only checkpoint + the shared fp8 T5 / clip_l / VAE.
+
 ## Status — WORKING
-Verified in Forge at 1024×1024 (fp8 DiT + fp8 T5 + clip_l + Flux VAE on a 24 GB card).
+Verified in Forge at 1024×1024 (fp8 DiT + fp8 T5 + clip_l + Flux VAE on a 24 GB card),
+including a real Civitai fp8 Flux unet-only checkpoint reusing the shared encoders/VAE.
 
 ### Compatibility fix
 Loading any Flux-family model on this fork's modernized dependencies (diffusers ≥ 0.38) first
