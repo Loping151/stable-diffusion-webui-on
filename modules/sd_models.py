@@ -407,6 +407,16 @@ class SdModelData:
 
 model_data = SdModelData()
 
+# RAM cache of fully-constructed engines (forge_hash -> sd_model), so switching
+# checkpoints skips disk load; capacity is opts.sd_checkpoints_limit (active model included)
+model_memory_cache = collections.OrderedDict()
+
+
+def clear_model_memory_cache():
+    if model_memory_cache:
+        print(f'Dropping {len(model_memory_cache)} model(s) from RAM cache')
+        model_memory_cache.clear()
+
 
 def get_empty_cond(sd_model):
     pass
@@ -449,6 +459,7 @@ def reload_model_weights(sd_model=None, info=None, forced_reload=False):
 
 
 def unload_model_weights(sd_model=None, info=None):
+    clear_model_memory_cache()
     memory_management.unload_all_models()
     return
 
@@ -480,9 +491,18 @@ def forge_model_reload():
 
     timer = Timer()
 
+    cache_limit = max(int(getattr(opts, 'sd_checkpoints_limit', 1) or 1), 1)
+    sd_model = model_memory_cache.pop(current_hash, None)
+
     if model_data.sd_model:
+        if cache_limit > 1 and model_data.forge_hash:
+            model_memory_cache[model_data.forge_hash] = model_data.sd_model
         model_data.sd_model = None
+        model_data.forge_hash = ''
         memory_management.unload_all_models()
+        while len(model_memory_cache) > cache_limit - 1:
+            evicted_hash, _ = model_memory_cache.popitem(last=False)
+            print(f'Model evicted from RAM cache: {evicted_hash}')
         memory_management.soft_empty_cache()
         gc.collect()
 
@@ -493,16 +513,19 @@ def forge_model_reload():
     if checkpoint_info is None:
         raise ValueError('You do not have any model! Please download at least one model in [models/Stable-diffusion].')
 
-    state_dict = checkpoint_info.filename
-    additional_state_dicts = model_data.forge_loading_parameters.get('additional_modules', [])
-
-    timer.record("cache state dict")
-
     dynamic_args['forge_unet_storage_dtype'] = model_data.forge_loading_parameters.get('unet_storage_dtype', None)
     dynamic_args['embedding_dir'] = cmd_opts.embeddings_dir
     dynamic_args['emphasis_name'] = opts.emphasis
-    sd_model = forge_loader(state_dict, additional_state_dicts=additional_state_dicts)
-    timer.record("forge model load")
+
+    if sd_model is not None:
+        print(f'Model reused from RAM cache: {checkpoint_info.filename}')
+        timer.record("reuse model from cache")
+    else:
+        state_dict = checkpoint_info.filename
+        additional_state_dicts = model_data.forge_loading_parameters.get('additional_modules', [])
+        timer.record("cache state dict")
+        sd_model = forge_loader(state_dict, additional_state_dicts=additional_state_dicts)
+        timer.record("forge model load")
 
     sd_model.extra_generation_params = {}
     sd_model.comments = []
